@@ -1,0 +1,44 @@
+{
+  "name": "@sandsoftwaresolutions/json-store",
+  "version": "0.1.0",
+  "description": "A small JSON file store: atomic writes, ordered updates, rollback and versioned migrations. Never overwrites a file it does not understand.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "pack:check": "npm pack --dry-run"
+  },
+  "keywords": [
+    "json",
+    "store",
+    "settings",
+    "state",
+    "migrations"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SandSoftwareSolutions/ss-json-store.git"
+  },
+  "bugs": {
+    "url": "https://github.com/SandSoftwareSolutions/ss-json-store/issues"
+  },
+  "homepage": "https://github.com/SandSoftwareSolutions/ss-json-store#readme",
+  "publishConfig": {
+    "access": "public"
+  }
+}
