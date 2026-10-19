@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
@@ -100,4 +100,47 @@ test("bad options", async () => {
   await assert.rejects(openStore({}), TypeError);
   await assert.rejects(openStore({ path: file("k.json"), version: 0 }), RangeError);
   assert.equal(existsSync(file("k.json")), false);
+});
+
+test("a migration that fails (even with an ENOENT error) never replaces the file with the defaults", async () => {
+  const path = file("mig-fail.json");
+  writeFileSync(path, JSON.stringify({ version: 1, data: { precious: true } }));
+  const before = readFileSync(path, "utf8");
+  const migrations = { 2: () => readFileSync(file("does-not-exist/anything")) };
+  await assert.rejects(openStore({ path, version: 2, migrations, defaults: { precious: false } }), { code: "ENOENT" });
+  assert.equal(readFileSync(path, "utf8"), before);
+});
+
+test("a file with version 0 or less is refused clearly", async () => {
+  const path = file("v0.json");
+  writeFileSync(path, JSON.stringify({ version: 0, data: {} }));
+  await assert.rejects(openStore({ path, version: 2, migrations: { 2: (d) => d } }), (e) => e instanceof RangeError && /versions start at 1/.test(e.message));
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).version, 0);
+});
+
+test("a byte order mark in the file is accepted", async () => {
+  const path = file("bom.json");
+  writeFileSync(path, `﻿${JSON.stringify({ version: 1, data: { a: 1 } })}`);
+  assert.deepEqual((await openStore({ path })).get(), { a: 1 });
+});
+
+test("permissions of an existing file are kept exactly, whatever the umask", { skip: process.platform === "win32" }, async () => {
+  const path = file("perm.json");
+  const store = await openStore({ path });
+  chmodSync(path, 0o664);
+  const before = process.umask(0o022);
+  try {
+    await store.update((d) => { d.x = 1; });
+  } finally {
+    process.umask(before);
+  }
+  assert.equal(statSync(path).mode & 0o7777, 0o664);
+});
+
+test("the data in memory is what is in the file: a Date becomes a string, undefined fields disappear", async () => {
+  const path = file("plain.json");
+  const store = await openStore({ path, defaults: { when: null } });
+  const result = await store.update((d) => { d.when = new Date(Date.UTC(2026, 0, 2)); d.gone = undefined; d.n = Infinity; });
+  assert.deepEqual(result, { when: "2026-01-02T00:00:00.000Z", n: null });
+  assert.deepEqual(store.get(), (await openStore({ path })).get());
 });

@@ -3,16 +3,26 @@ import { constants } from "node:fs";
 import { mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
+// What goes into the file is JSON, so that is also what the store holds in memory: a Date is a string, undefined fields are gone,
+// and what get() returns right after an update is exactly what a reopened store returns.
+const plain = (value) => {
+  const text = JSON.stringify(value);
+  return text === undefined ? undefined : JSON.parse(text);
+};
+
 async function writeAtomic(path, text) {
   const temp = join(dirname(path), `.${basename(path)}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
   let mode = 0o600;
+  let keep = false;
   try {
     mode = (await stat(path)).mode & 0o7777;
+    keep = true;
   } catch {
     // New file: private by default, because stores often hold settings and tokens.
   }
   const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, mode);
   try {
+    if (keep && process.platform !== "win32") await handle.chmod(mode); // exactly as before, whatever the umask
     await handle.writeFile(text);
     await handle.sync();
   } catch (error) {
@@ -48,28 +58,32 @@ export async function openStore({ path, defaults = {}, version = 1, migrations =
   await mkdir(dirname(path), { recursive: true });
 
   let data;
-  let loaded = false;
+  let text;
   try {
-    const text = await readFile(path, "utf8");
+    text = await readFile(path, "utf8");
+  } catch (error) {
+    // Only a missing file starts a new store. Anything that goes wrong after this point (a failing migration, a failing write)
+    // must never be mistaken for a missing file, or the data in the file would be replaced by the defaults.
+    if (error.code !== "ENOENT") throw error;
+  }
+  if (text !== undefined) {
     let file;
     try {
-      file = JSON.parse(text);
+      file = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
     } catch (error) {
       throw new SyntaxError(`json-store: ${path} is not valid JSON (${error.message}). It was not touched; fix or remove it.`);
     }
     if (file === null || typeof file !== "object" || !Number.isInteger(file.version) || !("data" in file)) {
       throw new SyntaxError(`json-store: ${path} is not a store file (expected { version, data }). It was not touched.`);
     }
+    if (file.version < 1) throw new RangeError(`json-store: ${path} has version ${file.version}; versions start at 1. It was not touched.`);
     if (file.version > version) throw new RangeError(`json-store: ${path} is version ${file.version}, newer than this program understands (${version}). It was not touched.`);
     data = file.data;
-    for (let v = file.version + 1; v <= version; v++) data = await migrations[v](structuredClone(data));
-    loaded = true;
+    for (let v = file.version + 1; v <= version; v++) data = plain(await migrations[v](structuredClone(data)));
     if (file.version < version) await persist(file.version);
-  } catch (error) {
-    if (error.code !== "ENOENT") throw error;
-  }
-  if (!loaded) {
-    data = structuredClone(defaults);
+  } else {
+    data = plain(defaults);
+    if (data === undefined) data = {};
     await persist();
   }
 
@@ -99,7 +113,7 @@ export async function openStore({ path, defaults = {}, version = 1, migrations =
         const draft = structuredClone(data);
         const result = await fn(draft);
         const before = data;
-        data = result === undefined ? draft : structuredClone(result);
+        data = result === undefined ? plain(draft) : plain(result);
         try {
           await persist();
         } catch (error) {

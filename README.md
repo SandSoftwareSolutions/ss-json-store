@@ -31,9 +31,10 @@ await store.set({ lastRun: 0, failures: 0 });  // replace everything
 - **Atomic writes.** The file is written to a temporary file, flushed, and renamed over the old one, so a crash or power cut never leaves half a file.
 - **No lost updates.** Updates run one after the other, in order, even when the callbacks are async. Fifty `update` calls at the same time give fifty changes.
 - **Rollback.** If your callback throws or the write fails, the data stays as it was.
+- **What is in memory is what is on disk.** The data goes through JSON on every change, so a `Date` becomes a string, `undefined` fields disappear and `NaN`/`Infinity` become `null` right away, not only after a restart. `Map`, `Set` and class instances are not supported.
 - **Copies, not references.** `get()` returns a copy, so changing it by accident changes nothing.
-- **A private file.** A new file is created with permissions `600`, because stores tend to hold tokens.
-- **It refuses to destroy what it does not understand.** A corrupt file, a file that is not a store, or a file from a newer version of your program is *never* overwritten: you get an error that names the file.
+- **A private file.** A new file is created with permissions `600`, because stores tend to hold tokens. The permissions of an existing file are kept exactly.
+- **It refuses to destroy what it does not understand.** A corrupt file, a file that is not a store, or a file from a newer version of your program is *never* overwritten: you get an error that names the file. The same goes when a migration throws, whatever the error. A byte order mark at the start of the file is ignored.
 
 ## Migrations
 
