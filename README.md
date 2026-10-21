@@ -10,6 +10,8 @@ A small database for the things that do not need a database: settings, state, a 
 npm install @sandsoftwaresolutions/json-store
 ```
 
+Works with `import` and `require()`, and ships TypeScript types for both.
+
 ## Usage
 
 ```js
